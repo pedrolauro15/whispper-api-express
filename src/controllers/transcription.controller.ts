@@ -1,8 +1,8 @@
 import { Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
-import { VideoService } from '../services/video.service';
 import { TranslationService } from '../services/translation.service';
+import { VideoService } from '../services/video.service';
 
 export interface TranslatedSegment {
   start: number;
