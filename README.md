@@ -12,7 +12,7 @@ API Express.js para transcrição e geração de vídeo com legendas traduzidas 
 
 ## 📋 Pré-requisitos
 
-- Node.js 18+ 
+- Node.js 18+
 - FFmpeg instalado no sistema
 - TypeScript
 
