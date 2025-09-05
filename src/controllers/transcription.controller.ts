@@ -1,6 +1,8 @@
 import { Request, Response } from 'express';
 import fs from 'fs';
+import path from 'path';
 import { VideoService } from '../services/video.service';
+import { TranslationService } from '../services/translation.service';
 
 export interface TranslatedSegment {
   start: number;
@@ -10,9 +12,11 @@ export interface TranslatedSegment {
 
 export class TranscriptionController {
   private videoService: VideoService;
+  private translationService: TranslationService;
 
   constructor() {
     this.videoService = new VideoService();
+    this.translationService = new TranslationService();
   }
 
   async transcribeAndGenerateVideo(req: Request, res: Response): Promise<void> {
@@ -35,20 +39,46 @@ export class TranscriptionController {
       const targetLanguage = req.body.targetLanguage || 'pt';
       console.log(`🌍 Idioma de destino: ${targetLanguage}`);
 
-      // TODO: Aqui você implementaria a transcrição real com Whisper
-      // Por enquanto, vamos simular segmentos transcritos
-      const mockTranscription: TranslatedSegment[] = [
-        { start: 0, end: 3, text: `Texto transcrito em ${targetLanguage === 'pt' ? 'português' : 'idioma selecionado'}` },
-        { start: 3, end: 6, text: `Segunda parte da transcrição em ${targetLanguage}` },
-        { start: 6, end: 9, text: `Terceira parte do áudio transcrito` }
-      ];
+      // Passo 1: Extrair áudio do vídeo
+      console.log('🎵 Extraindo áudio do vídeo...');
+      const audioPath = await this.translationService.extractAudioFromVideo(videoFile.path);
 
-      console.log(`📝 Mock: ${mockTranscription.length} segmentos criados`);
+      // Passo 2: Transcrever áudio (simulado por enquanto)
+      console.log('🎙️ Transcrevendo áudio...');
+      const transcriptionSegments = await this.translationService.transcribeAudio(audioPath);
+
+      // Passo 3: Traduzir segmentos para o idioma de destino
+      console.log(`🌍 Traduzindo para ${targetLanguage}...`);
+      const translationResult = await this.translationService.translateSegments(
+        transcriptionSegments, 
+        targetLanguage
+      );
+
+      if (!translationResult.success) {
+        // Limpar arquivos temporários
+        fs.unlinkSync(videoFile.path);
+        if (fs.existsSync(audioPath)) fs.unlinkSync(audioPath);
+        
+        res.status(500).json({
+          error: 'Falha na tradução',
+          detail: translationResult.message
+        });
+        return;
+      }
+
+      // Converter para formato esperado pelo VideoService
+      const translatedSegments: TranslatedSegment[] = translationResult.segments!.map(seg => ({
+        start: seg.start,
+        end: seg.end,
+        text: seg.translatedText || seg.originalText
+      }));
+
+      console.log(`📝 ${translatedSegments.length} segmentos traduzidos`);
 
       // Gerar vídeo com as legendas
       const result = await this.videoService.generateVideoWithSubtitles(
         videoFile.path,
-        mockTranscription,
+        translatedSegments,
         {
           fontName: 'Arial',
           fontSize: 20,
@@ -73,31 +103,56 @@ export class TranscriptionController {
 
       console.log('✅ Vídeo processado com sucesso!');
 
+      // Mover o arquivo para a pasta de download com nome padronizado
+      const downloadFileName = `${videoFile.originalname.replace(/\.[^/.]+$/, '')}_with_subtitles.mp4`;
+      const downloadPath = path.join(__dirname, '../../temp', downloadFileName);
+      
+      // Copiar arquivo para o local de download
+      fs.copyFileSync(result.outputPath!, downloadPath);
+      
+      console.log(`📁 Arquivo copiado para: ${downloadPath}`);
+
       // Retornar JSON com informações do resultado (para o playground)
       res.json({
         success: true,
         originalFile: videoFile.originalname,
         targetLanguage: targetLanguage,
-        duration: '9s', // Mock duration
-        segmentsCount: mockTranscription.length,
-        transcription: mockTranscription,
-        outputPath: `/download/${videoFile.originalname.replace(/\.[^/.]+$/, '_with_subtitles.mp4')}`,
+        duration: `${Math.max(...translatedSegments.map(s => s.end))}s`,
+        segmentsCount: translatedSegments.length,
+        transcription: translatedSegments,
+        outputPath: `/download/${downloadFileName}`,
         message: 'Vídeo processado com sucesso!'
       });
 
-      // Limpar arquivo original
+      // Limpar arquivos temporários após um tempo
       setTimeout(() => {
         if (fs.existsSync(videoFile.path)) {
           fs.unlinkSync(videoFile.path);
         }
-      }, 5000); // Dar tempo para possível download
+        if (fs.existsSync(audioPath)) {
+          fs.unlinkSync(audioPath);
+        }
+        if (fs.existsSync(result.outputPath!)) {
+          fs.unlinkSync(result.outputPath!);
+        }
+      }, 30000); // 30 segundos para download
 
     } catch (error: any) {
       console.error('❌ Erro na transcrição:', error);
 
-      // Limpar arquivo temporário em caso de erro
+      // Limpar arquivos temporários em caso de erro
       if (req.file && fs.existsSync(req.file.path)) {
         fs.unlinkSync(req.file.path);
+      }
+
+      // Tentar limpar áudio extraído se existir
+      try {
+        const possibleAudioPath = req.file?.path.replace(/\.[^/.]+$/, '_audio.wav');
+        if (possibleAudioPath && fs.existsSync(possibleAudioPath)) {
+          fs.unlinkSync(possibleAudioPath);
+        }
+      } catch (cleanupError) {
+        console.warn('⚠️ Erro na limpeza de arquivos:', cleanupError);
       }
 
       res.status(500).json({
