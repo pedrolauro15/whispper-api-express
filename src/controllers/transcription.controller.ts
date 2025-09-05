@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { TranslationService } from '../services/translation.service';
 import { VideoService } from '../services/video.service';
+import { WhisperService, TranscriptionContext } from '../services/whisper.service';
 
 export interface TranslatedSegment {
   start: number;
@@ -13,10 +14,12 @@ export interface TranslatedSegment {
 export class TranscriptionController {
   private videoService: VideoService;
   private translationService: TranslationService;
+  private whisperService: WhisperService;
 
   constructor() {
     this.videoService = new VideoService();
     this.translationService = new TranslationService();
+    this.whisperService = new WhisperService();
   }
 
   async transcribeAndGenerateVideo(req: Request, res: Response): Promise<void> {
@@ -37,48 +40,63 @@ export class TranscriptionController {
       console.log(`✅ Arquivo recebido: ${videoFile.originalname} (${videoFile.mimetype})`);
 
       const targetLanguage = req.body.targetLanguage || 'pt';
-      console.log(`🌍 Idioma de destino: ${targetLanguage}`);
+      const sourceLanguage = req.body.language || 'auto';
+      
+      // Preparar contexto para o Whisper
+      const context: TranscriptionContext = {
+        prompt: req.body.prompt,
+        vocabulary: req.body.vocabulary ? JSON.parse(req.body.vocabulary) : undefined,
+        topic: req.body.topic,
+        speaker: req.body.speaker,
+        language: sourceLanguage
+      };
 
-      // Passo 1: Extrair áudio do vídeo
-      console.log('🎵 Extraindo áudio do vídeo...');
-      const audioPath = await this.translationService.extractAudioFromVideo(videoFile.path);
+      console.log(`🌍 Idioma origem: ${sourceLanguage}, destino: ${targetLanguage}`);
 
-      // Passo 2: Transcrever áudio (simulado por enquanto)
-      console.log('🎙️ Transcrevendo áudio...');
-      const transcriptionSegments = await this.translationService.transcribeAudio(audioPath);
+      // Passo 1: Transcrever usando WhisperService melhorado
+      console.log('🎙️ Transcrevendo com Whisper...');
+      const transcriptionResult = await this.whisperService.transcribeFile(videoFile.path, context);
 
-      // Passo 3: Traduzir segmentos para o idioma de destino
-      console.log(`🌍 Traduzindo para ${targetLanguage}...`);
-      const translationResult = await this.translationService.translateSegments(
-        transcriptionSegments, 
-        targetLanguage
-      );
+      // Passo 2: Traduzir segmentos se necessário
+      let finalSegments = transcriptionResult.segments;
+      let translatedSegments: any[] = [];
 
-      if (!translationResult.success) {
-        // Limpar arquivos temporários
-        fs.unlinkSync(videoFile.path);
-        if (fs.existsSync(audioPath)) fs.unlinkSync(audioPath);
+      if (targetLanguage !== sourceLanguage && targetLanguage !== 'auto') {
+        console.log(`🌍 Traduzindo para ${targetLanguage}...`);
         
-        res.status(500).json({
-          error: 'Falha na tradução',
-          detail: translationResult.message
-        });
-        return;
+        // Traduzir cada segmento individualmente para manter timing
+        translatedSegments = await Promise.all(
+          transcriptionResult.segments.map(async (segment) => {
+            const translatedText = await this.translationService.translateText(
+              segment.text,
+              targetLanguage,
+              sourceLanguage
+            );
+            
+            return {
+              ...segment,
+              text: translatedText,
+              originalText: segment.text
+            };
+          })
+        );
+        
+        finalSegments = translatedSegments;
       }
 
-      // Converter para formato esperado pelo VideoService
-      const translatedSegments: TranslatedSegment[] = translationResult.segments!.map(seg => ({
+      // Converter para formato do VideoService
+      const videoSegments: TranslatedSegment[] = finalSegments.map(seg => ({
         start: seg.start,
         end: seg.end,
-        text: seg.translatedText || seg.originalText
+        text: seg.text
       }));
 
-      console.log(`📝 ${translatedSegments.length} segmentos traduzidos`);
+      console.log(`📝 ${videoSegments.length} segmentos processados`);
 
-      // Gerar vídeo com as legendas
+      // Passo 3: Gerar vídeo com legendas
       const result = await this.videoService.generateVideoWithSubtitles(
         videoFile.path,
-        translatedSegments,
+        videoSegments,
         {
           fontName: 'Arial',
           fontSize: 20,
@@ -112,16 +130,29 @@ export class TranscriptionController {
       
       console.log(`📁 Arquivo copiado para: ${downloadPath}`);
 
-      // Retornar JSON com informações do resultado (para o playground)
+      // Retornar JSON estruturado com dados detalhados
       res.json({
         success: true,
+        message: 'Vídeo processado com sucesso!',
         originalFile: videoFile.originalname,
         targetLanguage: targetLanguage,
-        duration: `${Math.max(...translatedSegments.map(s => s.end))}s`,
-        segmentsCount: translatedSegments.length,
-        transcription: translatedSegments,
-        outputPath: `/download/${downloadFileName}`,
-        message: 'Vídeo processado com sucesso!'
+        sourceLanguage: sourceLanguage,
+        transcription: {
+          text: transcriptionResult.text,
+          segments: transcriptionResult.segments,
+          language: transcriptionResult.language,
+          translatedSegments: translatedSegments.length > 0 ? translatedSegments : undefined
+        },
+        video: {
+          downloadUrl: `/download/${downloadFileName}`,
+          fileName: downloadFileName
+        },
+        stats: {
+          duration: transcriptionResult.duration || 0,
+          originalSegments: transcriptionResult.segments.length,
+          translatedSegments: translatedSegments.length,
+          segments: finalSegments.length
+        }
       });
 
       // Limpar arquivos temporários após um tempo
@@ -129,13 +160,10 @@ export class TranscriptionController {
         if (fs.existsSync(videoFile.path)) {
           fs.unlinkSync(videoFile.path);
         }
-        if (fs.existsSync(audioPath)) {
-          fs.unlinkSync(audioPath);
-        }
         if (fs.existsSync(result.outputPath!)) {
           fs.unlinkSync(result.outputPath!);
         }
-      }, 30000); // 30 segundos para download
+      }, 60000); // 1 minuto para download
 
     } catch (error: any) {
       console.error('❌ Erro na transcrição:', error);
@@ -143,16 +171,6 @@ export class TranscriptionController {
       // Limpar arquivos temporários em caso de erro
       if (req.file && fs.existsSync(req.file.path)) {
         fs.unlinkSync(req.file.path);
-      }
-
-      // Tentar limpar áudio extraído se existir
-      try {
-        const possibleAudioPath = req.file?.path.replace(/\.[^/.]+$/, '_audio.wav');
-        if (possibleAudioPath && fs.existsSync(possibleAudioPath)) {
-          fs.unlinkSync(possibleAudioPath);
-        }
-      } catch (cleanupError) {
-        console.warn('⚠️ Erro na limpeza de arquivos:', cleanupError);
       }
 
       res.status(500).json({

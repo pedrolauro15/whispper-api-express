@@ -226,6 +226,129 @@
         .status.error {
             color: #e53e3e;
         }
+
+        .transcription-section {
+            margin-top: 20px;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 20px;
+        }
+
+        .transcription-controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+
+        .transcription-controls select,
+        .transcription-controls button {
+            padding: 8px 12px;
+            border: 1px solid #cbd5e0;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .transcription-controls button {
+            background: #3182ce;
+            color: white;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .transcription-controls button:hover {
+            background: #2c5aa0;
+        }
+
+        .transcription-content {
+            background: #f7fafc;
+            border-radius: 6px;
+            padding: 15px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .segment {
+            margin-bottom: 15px;
+            padding: 10px;
+            background: white;
+            border-radius: 4px;
+            border-left: 3px solid #3182ce;
+        }
+
+        .segment-time {
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            color: #718096;
+            margin-bottom: 5px;
+        }
+
+        .segment-text {
+            font-size: 14px;
+            line-height: 1.5;
+            color: #2d3748;
+        }
+
+        .segment-meta {
+            margin-top: 5px;
+            font-size: 11px;
+            color: #a0aec0;
+        }
+
+        .translation-section {
+            margin-top: 15px;
+            padding: 15px;
+            background: #edf2f7;
+            border-radius: 6px;
+        }
+
+        .translation-controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+
+        .translation-result {
+            background: white;
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 10px;
+            min-height: 100px;
+        }
+
+        .stats-section {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f0fff4;
+            border-radius: 6px;
+            border: 1px solid #9ae6b4;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .stat-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px;
+            background: white;
+            border-radius: 4px;
+        }
+
+        .stat-label {
+            font-weight: 600;
+            color: #2d3748;
+        }
+
+        .stat-value {
+            color: #38a169;
+            font-weight: 500;
+        }
     </style>
 </head>
 <body>
@@ -402,12 +525,85 @@
                     ` : ''}
 
                     ${data.transcription ? `
-                        <div class="logs">
-                            <strong>Transcrição:</strong><br>
-                            ${data.transcription.map(segment => 
-                                `[${segment.start}s - ${segment.end}s] ${segment.text}`
-                            ).join('<br>')}
+                        <div class="transcription-section">
+                            <h3>📝 Transcrição Detalhada</h3>
+                            <div class="transcription-controls">
+                                <select id="transcriptionView" onchange="toggleTranscriptionView()">
+                                    <option value="segments">Por Segmentos</option>
+                                    <option value="full">Texto Completo</option>
+                                    <option value="srt">Formato SRT</option>
+                                </select>
+                                <button onclick="downloadTranscription()">📥 Baixar Transcrição</button>
+                                <button onclick="translateTranscription()">🌐 Traduzir</button>
+                            </div>
+                            
+                            <div id="transcriptionContent" class="transcription-content">
+                                <div class="transcription-segments">
+                                    ${data.transcription.segments ? data.transcription.segments.map((segment, index) => 
+                                        `<div class="segment" data-start="${segment.start}" data-end="${segment.end}">
+                                            <div class="segment-time">[${formatTime(segment.start)} → ${formatTime(segment.end)}]</div>
+                                            <div class="segment-text">${segment.text}</div>
+                                            <div class="segment-meta">
+                                                <small>ID: ${segment.id || index} | Confiança: ${Math.round((1 - (segment.no_speech_prob || 0.1)) * 100)}%</small>
+                                            </div>
+                                        </div>`
+                                    ).join('') : 
+                                    data.transcription.map((segment, index) => 
+                                        `<div class="segment">
+                                            <div class="segment-time">[${formatTime(segment.start)} → ${formatTime(segment.end)}]</div>
+                                            <div class="segment-text">${segment.text}</div>
+                                        </div>`
+                                    ).join('')}
+                                </div>
+                            </div>
+                            
+                            <div class="translation-section" style="display: none;">
+                                <h4>🌐 Tradução</h4>
+                                <div class="translation-controls">
+                                    <select id="targetLanguage">
+                                        <option value="pt">Português</option>
+                                        <option value="en">English</option>
+                                        <option value="es">Español</option>
+                                        <option value="fr">Français</option>
+                                        <option value="de">Deutsch</option>
+                                        <option value="it">Italiano</option>
+                                    </select>
+                                    <select id="translationModel">
+                                        <option value="llama3.1:8b">Llama 3.1 8B</option>
+                                        <option value="google">Google Translate</option>
+                                        <option value="dictionary">Dicionário Local</option>
+                                    </select>
+                                    <button onclick="performTranslation()">Traduzir Agora</button>
+                                </div>
+                                <div id="translationResult" class="translation-result"></div>
+                            </div>
                         </div>
+                        
+                        ${data.stats ? `
+                            <div class="stats-section">
+                                <h3>📊 Estatísticas</h3>
+                                <div class="stats-grid">
+                                    <div class="stat-item">
+                                        <span class="stat-label">Duração:</span>
+                                        <span class="stat-value">${formatTime(data.stats.duration || 0)}</span>
+                                    </div>
+                                    <div class="stat-item">
+                                        <span class="stat-label">Segmentos:</span>
+                                        <span class="stat-value">${data.stats.originalSegments || data.stats.segments || 0}</span>
+                                    </div>
+                                    <div class="stat-item">
+                                        <span class="stat-label">Idioma:</span>
+                                        <span class="stat-value">${data.transcription.language || 'Português'}</span>
+                                    </div>
+                                    ${data.stats.translatedSegments ? `
+                                        <div class="stat-item">
+                                            <span class="stat-label">Traduzidos:</span>
+                                            <span class="stat-value">${data.stats.translatedSegments}</span>
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            </div>
+                        ` : ''}
                     ` : ''}
                 `;
             } else {
@@ -440,6 +636,328 @@
                 showResult({ error: 'Não foi possível conectar ao servidor. Verifique se está rodando na porta 3000.' }, false);
             }
         });
+
+        // Variável global para armazenar os dados da transcrição atual
+        let currentTranscriptionData = null;
+
+        // Função para formatar tempo em MM:SS
+        function formatTime(seconds) {
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        // Função para alternar visualização da transcrição
+        function toggleTranscriptionView() {
+            const viewSelect = document.getElementById('transcriptionView');
+            const content = document.getElementById('transcriptionContent');
+            const view = viewSelect.value;
+
+            if (!currentTranscriptionData) return;
+
+            const segments = currentTranscriptionData.transcription.segments || currentTranscriptionData.transcription;
+
+            switch (view) {
+                case 'segments':
+                    content.innerHTML = `
+                        <div class="transcription-segments">
+                            ${segments.map((segment, index) => 
+                                `<div class="segment" data-start="${segment.start}" data-end="${segment.end}">
+                                    <div class="segment-time">[${formatTime(segment.start)} → ${formatTime(segment.end)}]</div>
+                                    <div class="segment-text">${segment.text}</div>
+                                    <div class="segment-meta">
+                                        <small>ID: ${segment.id || index} | Confiança: ${Math.round((1 - (segment.no_speech_prob || 0.1)) * 100)}%</small>
+                                    </div>
+                                </div>`
+                            ).join('')}
+                        </div>
+                    `;
+                    break;
+
+                case 'full':
+                    const fullText = segments.map(s => s.text).join(' ');
+                    content.innerHTML = `
+                        <div class="full-text">
+                            <p style="line-height: 1.6; font-size: 14px;">${fullText}</p>
+                        </div>
+                    `;
+                    break;
+
+                case 'srt':
+                    const srtContent = segments.map((segment, index) => 
+                        `${index + 1}\n${formatSRTTime(segment.start)} --> ${formatSRTTime(segment.end)}\n${segment.text}\n`
+                    ).join('\n');
+                    content.innerHTML = `
+                        <div class="srt-content">
+                            <pre style="background: white; padding: 10px; font-family: monospace; font-size: 12px; white-space: pre-wrap;">${srtContent}</pre>
+                        </div>
+                    `;
+                    break;
+            }
+        }
+
+        // Função para formatar tempo no formato SRT (00:00:00,000)
+        function formatSRTTime(seconds) {
+            const hours = Math.floor(seconds / 3600);
+            const mins = Math.floor((seconds % 3600) / 60);
+            const secs = Math.floor(seconds % 60);
+            const ms = Math.floor((seconds % 1) * 1000);
+            
+            return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')},${ms.toString().padStart(3, '0')}`;
+        }
+
+        // Função para baixar transcrição
+        function downloadTranscription() {
+            if (!currentTranscriptionData) return;
+
+            const viewSelect = document.getElementById('transcriptionView');
+            const format = viewSelect.value;
+            const segments = currentTranscriptionData.transcription.segments || currentTranscriptionData.transcription;
+
+            let content = '';
+            let filename = '';
+            let mimeType = 'text/plain';
+
+            switch (format) {
+                case 'segments':
+                case 'full':
+                    content = segments.map(s => s.text).join(' ');
+                    filename = 'transcricao.txt';
+                    break;
+
+                case 'srt':
+                    content = segments.map((segment, index) => 
+                        `${index + 1}\n${formatSRTTime(segment.start)} --> ${formatSRTTime(segment.end)}\n${segment.text}\n`
+                    ).join('\n');
+                    filename = 'legendas.srt';
+                    break;
+            }
+
+            const blob = new Blob([content], { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        // Função para mostrar/ocultar seção de tradução
+        function translateTranscription() {
+            const translationSection = document.querySelector('.translation-section');
+            if (translationSection.style.display === 'none') {
+                translationSection.style.display = 'block';
+            } else {
+                translationSection.style.display = 'none';
+            }
+        }
+
+        // Função para realizar tradução
+        async function performTranslation() {
+            if (!currentTranscriptionData) return;
+
+            const targetLanguage = document.getElementById('targetLanguage').value;
+            const model = document.getElementById('translationModel').value;
+            const resultDiv = document.getElementById('translationResult');
+
+            // Obter texto completo da transcrição
+            const segments = currentTranscriptionData.transcription.segments || currentTranscriptionData.transcription;
+            const fullText = segments.map(s => s.text).join(' ');
+
+            resultDiv.innerHTML = '<div style="text-align: center; padding: 20px;">🔄 Traduzindo...</div>';
+
+            try {
+                const response = await fetch('/api/translate/transcription', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        text: fullText,
+                        targetLanguage: targetLanguage,
+                        sourceLanguage: 'auto',
+                        model: model
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    resultDiv.innerHTML = `
+                        <div class="translation-success">
+                            <h5>✅ Tradução Concluída</h5>
+                            <div style="margin: 10px 0;">
+                                <strong>Idioma de destino:</strong> ${data.translation.targetLanguage}<br>
+                                <strong>Modelo usado:</strong> ${data.translation.model}
+                            </div>
+                            <div style="background: #f7fafc; padding: 10px; border-radius: 4px; margin-top: 10px;">
+                                <strong>Texto traduzido:</strong><br>
+                                ${data.translation.translatedText}
+                            </div>
+                            <button onclick="downloadTranslation('${data.translation.translatedText.replace(/'/g, "\\'")}', '${targetLanguage}')" 
+                                    style="margin-top: 10px; padding: 8px 12px; background: #38a169; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                                📥 Baixar Tradução
+                            </button>
+                        </div>
+                    `;
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="translation-error">
+                            <h5>❌ Erro na Tradução</h5>
+                            <p>${data.message || 'Erro desconhecido'}</p>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                console.error('Erro na tradução:', error);
+                resultDiv.innerHTML = `
+                    <div class="translation-error">
+                        <h5>❌ Erro de Conexão</h5>
+                        <p>Não foi possível conectar ao servidor de tradução.</p>
+                    </div>
+                `;
+            }
+        }
+
+        // Função para baixar tradução
+        function downloadTranslation(translatedText, language) {
+            const blob = new Blob([translatedText], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `traducao_${language}.txt`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        // Atualizar a função showResult para armazenar dados
+        function showResult(data, success) {
+            const resultDiv = document.getElementById('result');
+            const resultTitle = document.getElementById('result-title');
+            const resultContent = document.getElementById('result-content');
+
+            // Armazenar dados globalmente
+            if (success) {
+                currentTranscriptionData = data;
+            }
+
+            resultDiv.style.display = 'block';
+
+            if (success) {
+                resultTitle.textContent = '✅ Processamento Concluído';
+                resultContent.innerHTML = `
+                    <div class="status completed">Vídeo processado com sucesso!</div>
+                    
+                    ${data.video ? `
+                        <div class="download-section">
+                            <h3>📥 Download</h3>
+                            <a href="${data.video.downloadUrl}" class="download-button" download>
+                                📹 Baixar Vídeo com Legendas
+                            </a>
+                        </div>
+                    ` : ''}
+
+                    ${data.transcription ? `
+                        <div class="transcription-section">
+                            <h3>📝 Transcrição Detalhada</h3>
+                            <div class="transcription-controls">
+                                <select id="transcriptionView" onchange="toggleTranscriptionView()">
+                                    <option value="segments">Por Segmentos</option>
+                                    <option value="full">Texto Completo</option>
+                                    <option value="srt">Formato SRT</option>
+                                </select>
+                                <button onclick="downloadTranscription()">📥 Baixar Transcrição</button>
+                                <button onclick="translateTranscription()">🌐 Traduzir</button>
+                            </div>
+                            
+                            <div id="transcriptionContent" class="transcription-content">
+                                <div class="transcription-segments">
+                                    ${data.transcription.segments ? data.transcription.segments.map((segment, index) => 
+                                        `<div class="segment" data-start="${segment.start}" data-end="${segment.end}">
+                                            <div class="segment-time">[${formatTime(segment.start)} → ${formatTime(segment.end)}]</div>
+                                            <div class="segment-text">${segment.text}</div>
+                                            <div class="segment-meta">
+                                                <small>ID: ${segment.id || index} | Confiança: ${Math.round((1 - (segment.no_speech_prob || 0.1)) * 100)}%</small>
+                                            </div>
+                                        </div>`
+                                    ).join('') : 
+                                    data.transcription.map((segment, index) => 
+                                        `<div class="segment">
+                                            <div class="segment-time">[${formatTime(segment.start)} → ${formatTime(segment.end)}]</div>
+                                            <div class="segment-text">${segment.text}</div>
+                                        </div>`
+                                    ).join('')}
+                                </div>
+                            </div>
+                            
+                            <div class="translation-section" style="display: none;">
+                                <h4>🌐 Tradução</h4>
+                                <div class="translation-controls">
+                                    <select id="targetLanguage">
+                                        <option value="pt">Português</option>
+                                        <option value="en">English</option>
+                                        <option value="es">Español</option>
+                                        <option value="fr">Français</option>
+                                        <option value="de">Deutsch</option>
+                                        <option value="it">Italiano</option>
+                                    </select>
+                                    <select id="translationModel">
+                                        <option value="llama3.1:8b">Llama 3.1 8B</option>
+                                        <option value="google">Google Translate</option>
+                                        <option value="dictionary">Dicionário Local</option>
+                                    </select>
+                                    <button onclick="performTranslation()">Traduzir Agora</button>
+                                </div>
+                                <div id="translationResult" class="translation-result"></div>
+                            </div>
+                        </div>
+                        
+                        ${data.stats ? `
+                            <div class="stats-section">
+                                <h3>📊 Estatísticas</h3>
+                                <div class="stats-grid">
+                                    <div class="stat-item">
+                                        <span class="stat-label">Duração:</span>
+                                        <span class="stat-value">${formatTime(data.stats.duration || 0)}</span>
+                                    </div>
+                                    <div class="stat-item">
+                                        <span class="stat-label">Segmentos:</span>
+                                        <span class="stat-value">${data.stats.originalSegments || data.stats.segments || 0}</span>
+                                    </div>
+                                    <div class="stat-item">
+                                        <span class="stat-label">Idioma:</span>
+                                        <span class="stat-value">${data.transcription.language || 'Português'}</span>
+                                    </div>
+                                    ${data.stats.translatedSegments ? `
+                                        <div class="stat-item">
+                                            <span class="stat-label">Traduzidos:</span>
+                                            <span class="stat-value">${data.stats.translatedSegments}</span>
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            </div>
+                        ` : ''}
+                    ` : ''}
+                `;
+            } else {
+                resultTitle.textContent = '❌ Erro no Processamento';
+                resultContent.innerHTML = `
+                    <div class="status error">Ocorreu um erro durante o processamento:</div>
+                    <p>${data.error}</p>
+                    <div class="logs">
+                        Verifique se:
+                        <br>• O arquivo de vídeo é válido
+                        <br>• O servidor está rodando
+                        <br>• FFmpeg está instalado
+                        <br>• Há espaço suficiente em disco
+                    </div>
+                `;
+            }
+        }
     </script>
 </body>
 </html>
