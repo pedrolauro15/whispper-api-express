@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { Ollama } from 'ollama';
 
 export interface TranslationSegment {
   start: number;
@@ -13,7 +14,48 @@ export interface TranslationResult {
   segments?: TranslationSegment[];
 }
 
+export interface TranslationOptions {
+  targetLanguage: string;
+  sourceLanguage?: string;
+  model?: string;
+}
+
 export class TranslationService {
+  private ollama: Ollama;
+  
+  constructor() {
+    // Configurar Ollama para o servidor correto
+    this.ollama = new Ollama({ 
+      host: process.env.OLLAMA_HOST || 'http://caucaia.saudehd.com.br:11434' 
+    });
+  }
+
+  private readonly supportedModels = {
+    'llama3.1:8b': {
+      name: 'Llama 3.1 8B',
+      description: 'Modelo rápido e eficiente para traduções gerais',
+      temperature: 0.3,
+      top_p: 0.9
+    },
+    'llama3.1:70b': {
+      name: 'Llama 3.1 70B',
+      description: 'Modelo mais poderoso para traduções complexas',
+      temperature: 0.2,
+      top_p: 0.8
+    },
+    'llama3.2:3b': {
+      name: 'Llama 3.2 3B',
+      description: 'Modelo compacto e rápido',
+      temperature: 0.4,
+      top_p: 0.9
+    },
+    'qwen2.5:7b': {
+      name: 'Qwen 2.5 7B',
+      description: 'Modelo Qwen especializado em múltiplas linguagens',
+      temperature: 0.3,
+      top_p: 0.9
+    }
+  };
   
   /**
    * Simula transcrição de áudio usando Whisper
@@ -138,26 +180,125 @@ export class TranslationService {
 
   /**
    * Traduz um texto individual
-   * Usa múltiplas estratégias de tradução
+   * Usa múltiplas estratégias de tradução: Ollama -> Google -> Dicionário
    */
-  private async translateText(
+  async translateText(
     text: string, 
-    sourceLanguage: string, 
-    targetLanguage: string
+    targetLanguage: string,
+    sourceLanguage: string = 'auto',
+    model: string = 'llama3.1:8b'
   ): Promise<string> {
     
-    // Estratégia 1: Tentar Google Translate (gratuito via API não oficial)
+    // Estratégia 1: Tentar Ollama (modelo local de IA)
+    try {
+      const translation = await this.translateWithOllama(text, sourceLanguage, targetLanguage, model);
+      if (translation) {
+        return translation;
+      }
+    } catch (error) {
+      console.warn('⚠️ Ollama falhou, tentando Google Translate');
+    }
+    
+    // Estratégia 2: Tentar Google Translate (gratuito via API não oficial)
     try {
       const translation = await this.translateWithGoogle(text, sourceLanguage, targetLanguage);
       if (translation) {
         return translation;
       }
     } catch (error) {
-      console.warn('⚠️ Google Translate falhou, tentando estratégia alternativa');
+      console.warn('⚠️ Google Translate falhou, usando dicionário local');
     }
 
-    // Estratégia 2: Tradução baseada em dicionário simples
+    // Estratégia 3: Tradução baseada em dicionário simples
     return this.translateWithDictionary(text, targetLanguage);
+  }
+
+  /**
+   * Tradução usando Ollama (modelo local de IA)
+   */
+  private async translateWithOllama(
+    text: string,
+    sourceLanguage: string,
+    targetLanguage: string,
+    model: string = 'llama3.1:8b'
+  ): Promise<string | null> {
+    try {
+      if (!text || text.trim() === '') {
+        return '';
+      }
+
+      const sourceLang = this.getLanguageName(sourceLanguage);
+      const targetLang = this.getLanguageName(targetLanguage);
+      const modelConfig = this.supportedModels[model as keyof typeof this.supportedModels];
+
+      console.log(`🤖 Traduzindo com Ollama: ${sourceLang} -> ${targetLang} (${model})`);
+
+      const prompt = `You are a professional translator. Translate the following text from ${sourceLang} to ${targetLang}.
+
+IMPORTANT INSTRUCTIONS:
+- Only return the translated text, nothing else
+- Maintain the original formatting and punctuation
+- Keep technical terms when appropriate
+- Preserve proper nouns unless they have standard translations
+- Ensure natural and fluent translation in the target language
+- Do not add explanations or comments
+
+Text to translate:
+"${text}"`;
+
+      const response = await this.ollama.generate({
+        model,
+        prompt,
+        stream: false,
+        options: {
+          temperature: modelConfig?.temperature || 0.3,
+          top_p: modelConfig?.top_p || 0.9,
+          num_predict: -1
+        }
+      });
+
+      const translatedText = response.response.trim();
+      
+      if (translatedText && translatedText !== text) {
+        console.log(`✅ Ollama traduziu: "${text}" -> "${translatedText}"`);
+        return translatedText;
+      }
+
+      return null;
+
+    } catch (error: any) {
+      console.error('❌ Erro na tradução com Ollama:', error);
+      
+      // Se for erro de conexão, é possível que o Ollama não esteja rodando
+      if (error.code === 'ECONNREFUSED' || error.message?.includes('connect')) {
+        console.warn('⚠️ Ollama não está acessível. Verifique se está rodando.');
+      }
+      
+      return null;
+    }
+  }
+
+  /**
+   * Converte código de idioma para nome completo
+   */
+  private getLanguageName(languageCode: string): string {
+    const languages: Record<string, string> = {
+      'pt': 'Portuguese',
+      'en': 'English',
+      'es': 'Spanish',
+      'fr': 'French',
+      'de': 'German',
+      'it': 'Italian',
+      'ja': 'Japanese',
+      'ko': 'Korean',
+      'zh': 'Chinese',
+      'ru': 'Russian',
+      'ar': 'Arabic',
+      'hi': 'Hindi',
+      'auto': 'Portuguese' // fallback padrão
+    };
+
+    return languages[languageCode] || 'Portuguese';
   }
 
   /**
@@ -337,5 +478,94 @@ export class TranslationService {
     if (french.test(text)) return 'fr';
     
     return 'en'; // Default para inglês
+  }
+
+  /**
+   * Obter modelos de tradução disponíveis no Ollama
+   */
+  async getAvailableModels(): Promise<Array<{id: string, name: string, description: string, available: boolean}>> {
+    try {
+      // Tentar listar modelos disponíveis no Ollama
+      const models = await this.ollama.list();
+      
+      const availableModels = Object.entries(this.supportedModels).map(([id, config]) => {
+        const isAvailable = models.models.some(model => model.name.startsWith(id));
+        return {
+          id,
+          name: config.name,
+          description: config.description,
+          available: isAvailable
+        };
+      });
+
+      // Adicionar modelos padrão sempre disponíveis
+      const defaultModels = [
+        {
+          id: 'google',
+          name: 'Google Translate',
+          description: 'Serviço de tradução do Google',
+          available: true
+        },
+        {
+          id: 'dictionary',
+          name: 'Dictionary Fallback',
+          description: 'Sistema de tradução básico usando dicionário local',
+          available: true
+        }
+      ];
+
+      return [...availableModels, ...defaultModels];
+
+    } catch (error) {
+      console.warn('⚠️ Erro ao obter modelos Ollama, retornando modelos padrão');
+      
+      // Retornar apenas modelos não-Ollama se houver erro
+      return [
+        {
+          id: 'google',
+          name: 'Google Translate',
+          description: 'Serviço de tradução do Google',
+          available: true
+        },
+        {
+          id: 'dictionary',
+          name: 'Dictionary Fallback',
+          description: 'Sistema de tradução básico usando dicionário local',
+          available: true
+        }
+      ];
+    }
+  }
+
+  /**
+   * Obter idiomas suportados para tradução
+   */
+  getSupportedLanguages(): Array<{code: string, name: string, nativeName: string}> {
+    return [
+      { code: 'pt', name: 'Portuguese', nativeName: 'Português' },
+      { code: 'en', name: 'English', nativeName: 'English' },
+      { code: 'es', name: 'Spanish', nativeName: 'Español' },
+      { code: 'fr', name: 'French', nativeName: 'Français' },
+      { code: 'de', name: 'German', nativeName: 'Deutsch' },
+      { code: 'it', name: 'Italian', nativeName: 'Italiano' },
+      { code: 'ja', name: 'Japanese', nativeName: '日本語' },
+      { code: 'ko', name: 'Korean', nativeName: '한국어' },
+      { code: 'zh', name: 'Chinese', nativeName: '中文' },
+      { code: 'ru', name: 'Russian', nativeName: 'Русский' },
+      { code: 'ar', name: 'Arabic', nativeName: 'العربية' },
+      { code: 'hi', name: 'Hindi', nativeName: 'हिन्दी' }
+    ];
+  }
+
+  /**
+   * Verificar se o Ollama está disponível
+   */
+  async isOllamaAvailable(): Promise<boolean> {
+    try {
+      await this.ollama.list();
+      return true;
+    } catch (error) {
+      return false;
+    }
   }
 }

@@ -43,6 +43,21 @@ router.post('/generate-video-with-translated-subtitles',
   transcriptionController.generateVideoWithTranslatedSubtitles.bind(transcriptionController)
 );
 
+// Rota para traduzir uma transcrição existente
+router.post('/translate/transcription', 
+  transcriptionController.translateTranscription.bind(transcriptionController)
+);
+
+// Rota para obter modelos de tradução disponíveis
+router.get('/translation/models', 
+  transcriptionController.getTranslationModels.bind(transcriptionController)
+);
+
+// Rota para obter idiomas de tradução suportados
+router.get('/translation/languages', 
+  transcriptionController.getTranslationLanguages.bind(transcriptionController)
+);
+
 // Rota de teste
 router.get('/test', (req, res) => {
   res.json({ 

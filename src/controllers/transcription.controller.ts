@@ -276,4 +276,103 @@ export class TranscriptionController {
       });
     }
   }
+
+  /**
+   * Endpoint para traduzir uma transcrição existente
+   */
+  async translateTranscription(req: Request, res: Response): Promise<void> {
+    try {
+      console.log('🌐 Iniciando tradução de transcrição...');
+      
+      const { text, sourceLanguage = 'auto', targetLanguage, model = 'google' } = req.body;
+
+      if (!text || !targetLanguage) {
+        res.status(400).json({ 
+          error: 'Texto e idioma de destino são obrigatórios',
+          detail: 'Campos "text" e "targetLanguage" devem ser fornecidos'
+        });
+        return;
+      }
+
+      console.log(`🔤 Traduzindo texto de ${sourceLanguage} para ${targetLanguage}`);
+      console.log(`📝 Texto original: ${text.substring(0, 100)}${text.length > 100 ? '...' : ''}`);
+
+      // Traduzir texto usando o serviço de tradução
+      const translatedText = await this.translationService.translateText(
+        text,
+        targetLanguage,
+        sourceLanguage
+      );
+
+      res.json({
+        success: true,
+        message: 'Tradução concluída com sucesso!',
+        translation: {
+          originalText: text,
+          translatedText: translatedText,
+          sourceLanguage: sourceLanguage,
+          targetLanguage: targetLanguage,
+          model: model
+        },
+        stats: {
+          originalLength: text.length,
+          translatedLength: translatedText.length
+        }
+      });
+
+    } catch (error: any) {
+      console.error('❌ Erro na tradução de transcrição:', error);
+      res.status(500).json({ 
+        error: 'Erro interno do servidor', 
+        message: error.message 
+      });
+    }
+  }
+
+  /**
+   * Endpoint para obter modelos de tradução disponíveis
+   */
+  async getTranslationModels(req: Request, res: Response): Promise<void> {
+    try {
+      console.log('📋 Obtendo modelos de tradução disponíveis...');
+      
+      const models = await this.translationService.getAvailableModels();
+      
+      res.json({
+        message: 'Modelos de tradução disponíveis',
+        models: models,
+        defaultModel: 'llama3.1:8b',
+        ollamaAvailable: await this.translationService.isOllamaAvailable()
+      });
+
+    } catch (error: any) {
+      console.error('❌ Erro ao obter modelos de tradução:', error);
+      res.status(500).json({ 
+        error: 'Erro interno do servidor', 
+        message: error.message 
+      });
+    }
+  }
+
+  /**
+   * Endpoint para obter idiomas de tradução suportados
+   */
+  async getTranslationLanguages(req: Request, res: Response): Promise<void> {
+    try {
+      const languages = this.translationService.getSupportedLanguages();
+
+      res.json({
+        message: 'Idiomas de tradução suportados',
+        languages: languages,
+        totalLanguages: languages.length
+      });
+
+    } catch (error: any) {
+      console.error('❌ Erro ao obter idiomas de tradução:', error);
+      res.status(500).json({ 
+        error: 'Erro interno do servidor', 
+        message: error.message 
+      });
+    }
+  }
 }
