@@ -30,16 +30,68 @@ export class TranslationService {
     //   timestamp_granularities: ["segment"]
     // });
 
-    // Por enquanto, simulamos segmentos baseados em duração estimada
-    const mockSegments: TranslationSegment[] = [
-      { start: 0, end: 3, originalText: "Hello, this is a sample transcription" },
-      { start: 3, end: 6, originalText: "This is the second part of the audio" },
-      { start: 6, end: 9, originalText: "And this is the final segment" },
-      { start: 9, end: 12, originalText: "Thank you for listening" }
-    ];
+    try {
+      const fs = require('fs');
+      
+      // Verificar se o arquivo de áudio existe
+      if (!fs.existsSync(audioPath)) {
+        throw new Error(`Arquivo de áudio não encontrado: ${audioPath}`);
+      }
 
-    console.log(`📝 Mock transcription: ${mockSegments.length} segmentos gerados`);
-    return mockSegments;
+      // Calcular duração estimada baseada no tamanho do arquivo (aproximação)
+      const stats = fs.statSync(audioPath);
+      const fileSizeKB = stats.size / 1024;
+      const estimatedDuration = Math.max(9, Math.min(60, Math.round(fileSizeKB / 256))); // Estimativa baseada no tamanho
+      
+      console.log(`📊 Arquivo de áudio: ${fileSizeKB.toFixed(2)} KB, duração estimada: ${estimatedDuration}s`);
+      
+      // Gerar segmentos baseados na duração estimada
+      const segmentDuration = 3; // 3 segundos por segmento
+      const numSegments = Math.ceil(estimatedDuration / segmentDuration);
+      
+      const mockSegments: TranslationSegment[] = [];
+      
+      for (let i = 0; i < numSegments; i++) {
+        const start = i * segmentDuration;
+        const end = Math.min((i + 1) * segmentDuration, estimatedDuration);
+        
+        // Textos mock mais variados
+        const mockTexts = [
+          "Hello, this is a sample transcription from the audio",
+          "This is the second part of the audio content",
+          "Here we continue with more audio transcription",
+          "This segment contains more spoken content",
+          "The audio continues with additional information",
+          "This is another part of the transcribed audio",
+          "More content is being transcribed from the audio",
+          "The transcription continues with this segment",
+          "Additional audio content is transcribed here",
+          "This is the final part of the audio transcription"
+        ];
+        
+        mockSegments.push({
+          start,
+          end,
+          originalText: mockTexts[i % mockTexts.length] || `Audio segment ${i + 1} transcribed content`
+        });
+      }
+
+      console.log(`📝 Mock transcription: ${mockSegments.length} segmentos gerados (${estimatedDuration}s total)`);
+      return mockSegments;
+      
+    } catch (error: any) {
+      console.error('❌ Erro na transcrição simulada:', error);
+      
+      // Fallback para segmentos padrão
+      const fallbackSegments: TranslationSegment[] = [
+        { start: 0, end: 3, originalText: "Sample transcription from uploaded audio" },
+        { start: 3, end: 6, originalText: "This is the second part of the audio" },
+        { start: 6, end: 9, originalText: "Final segment of the transcribed content" }
+      ];
+      
+      console.log(`⚠️ Usando segmentos fallback: ${fallbackSegments.length} itens`);
+      return fallbackSegments;
+    }
   }
 
   /**
@@ -242,17 +294,27 @@ export class TranslationService {
   async extractAudioFromVideo(videoPath: string): Promise<string> {
     const { exec } = require('child_process');
     const { promisify } = require('util');
+    const path = require('path');
     const execAsync = promisify(exec);
     
-    const audioPath = videoPath.replace(/\.[^/.]+$/, '_audio.wav');
+    // Gerar caminho para o arquivo de áudio com extensão apropriada
+    const baseName = path.basename(videoPath, path.extname(videoPath) || '');
+    const dirName = path.dirname(videoPath);
+    const audioPath = path.join(dirName, `${baseName}_audio.wav`);
     
     try {
-      console.log('🎵 Extraindo áudio do vídeo...');
+      console.log(`🎵 Extraindo áudio: ${videoPath} -> ${audioPath}`);
       
-      const command = `ffmpeg -i "${videoPath}" -ac 1 -ar 16000 -y "${audioPath}"`;
-      await execAsync(command);
+      // Comando FFmpeg com especificações mais robustas
+      const command = `ffmpeg -i "${videoPath}" -vn -acodec pcm_s16le -ac 1 -ar 16000 -f wav -y "${audioPath}"`;
       
-      console.log(`✅ Áudio extraído: ${audioPath}`);
+      const { stdout, stderr } = await execAsync(command);
+      
+      console.log(`✅ Áudio extraído com sucesso: ${audioPath}`);
+      if (stderr) {
+        console.log('FFmpeg stderr:', stderr);
+      }
+      
       return audioPath;
       
     } catch (error: any) {
